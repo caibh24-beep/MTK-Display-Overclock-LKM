@@ -1,42 +1,64 @@
-name: Build LKM
+name: Build PMB110 LKM
+
 on:
-  push:
-    branches: [ main ]
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
-      - name: Checkout module source
+      - name: 1. 下载你的仓库代码
         uses: actions/checkout@v4
 
-      - name: Install dependencies
+      - name: 2. 安装系统编译依赖
         run: |
-          sudo apt update
-          sudo apt install -y build-essential bc bison flex libssl-dev libelf-dev git cpio unzip python3
+          sudo apt-get update
+          sudo apt-get install -y git make bc bison flex libssl-dev libelf-dev python3 zip unzip rsync device-tree-compiler libncurses5-dev
 
-      - name: Download Kleaf Clang 19
+      - name: 3. 下载指定版本的 Clang r536225
         run: |
-          wget -q https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r536225.tar.gz
-          tar -xf clang-r536225.tar.gz -C clang
-          echo "$PWD/clang/bin" >> $GITHUB_PATH
+          cd ..
+          wget -q https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/master/clang-r536225.tar.gz
+          mkdir -p clang-r536225 && tar -xzf clang-r536225.tar.gz -C clang-r536225
+          echo "CLANG_PATH=$(pwd)/clang-r536225/bin" >> $GITHUB_ENV
 
-      - name: Download kernel source (PMB110)
+      - name: 4. 下载内核源码 (指定 commit)
         run: |
-          git clone https://github.com/Yunnijian/kernel_pmb110 kernel
-          cd kernel
-          # 重点：切换到和你手机匹配的commit
-          git checkout g242e1a07f878
-          make O=out ARCH=arm64 pmb110_defconfig
-          make O=out ARCH=arm64 -j$(nproc) modules_prepare
+          cd ..
+          git clone --depth 1 https://github.com/OnePlusOSS/android_kernel_oneplus_mt6993.git kernel_src
+          cd kernel_src
+          git fetch --depth 1 origin 2e3b6d890bd2c7bd5779bef6df6e16e2c972b87c
+          git checkout 2e3b6d890bd2c7bd5779bef6df6e16e2c972b87c
 
-      - name: Build display overclock ko
+      - name: 5. 下载显示模块源码 (指定 commit)
         run: |
-          make KERNEL_DIR=$PWD/kernel O=$PWD/kernel/out ARCH=arm64 CC=clang LD=lld
+          cd ..
+          git clone --depth 1 https://github.com/OnePlusOSS/android_kernel_modules_and_devicetree_oneplus_mt6993.git display_src
+          cd display_src
+          git fetch --depth 1 origin 2cc7f4606b65a9ede42030ee82614dd845b665a1
+          git checkout 2cc7f4606b65a9ede42030ee82614dd845b665a1
 
-      - name: Upload ko
+      - name: 6. 放入手机配置并生成头文件
+        run: |
+          cd ../kernel_src
+          cp $GITHUB_WORKSPACE/.config .
+          make ARCH=arm64 CC=$CLANG_PATH/clang oldconfig
+          make ARCH=arm64 CC=$CLANG_PATH/clang modules_prepare
+
+      - name: 7. 开始编译 .ko 文件
+        run: |
+          export PMB110_HEADERS_DIR=$(pwd)/../kernel_src
+          export PMB110_KERNEL_SOURCE=$(pwd)/../kernel_src
+          export PMB110_DISPLAY_ROOT=$(pwd)/../display_src
+          export PMB110_CLANG=$CLANG_PATH/clang
+          export PMB110_CLANG_PATH=$CLANG_PATH
+          export PMB110_LLD_PATH=$CLANG_PATH/ld.lld
+          export PMB110_SHORT=1
+          
+          sh scripts/build_module.sh
+
+      - name: 8. 打包上传编译好的 .ko 文件
         uses: actions/upload-artifact@v4
         with:
-          name: overclock-module
-          path: "*.ko"
+          name: PMB110-185-Mode-KO
+          path: out/*.ko
