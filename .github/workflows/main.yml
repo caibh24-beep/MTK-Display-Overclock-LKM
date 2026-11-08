@@ -1,0 +1,42 @@
+name: Build LKM
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout module source
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y build-essential bc bison flex libssl-dev libelf-dev git cpio unzip python3
+
+      - name: Download Kleaf Clang 19
+        run: |
+          wget -q https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r536225.tar.gz
+          tar -xf clang-r536225.tar.gz -C clang
+          echo "$PWD/clang/bin" >> $GITHUB_PATH
+
+      - name: Download kernel source (PMB110)
+        run: |
+          git clone https://github.com/Yunnijian/kernel_pmb110 kernel
+          cd kernel
+          # 重点：切换到和你手机匹配的commit
+          git checkout g242e1a07f878
+          make O=out ARCH=arm64 pmb110_defconfig
+          make O=out ARCH=arm64 -j$(nproc) modules_prepare
+
+      - name: Build display overclock ko
+        run: |
+          make KERNEL_DIR=$PWD/kernel O=$PWD/kernel/out ARCH=arm64 CC=clang LD=lld
+
+      - name: Upload ko
+        uses: actions/upload-artifact@v4
+        with:
+          name: overclock-module
+          path: "*.ko"
