@@ -7,7 +7,7 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     env:
-      # 统一定义工具链路径，方便后面调用
+      # 统一定义工具链的绝对路径
       CLANG_DIR: /home/runner/work/MTK-Display-Overclock-LKM/MTK-Display-Overclock-LKM/clang-r536225/bin
     steps:
       - name: 1. 下载你的仓库代码
@@ -18,7 +18,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y git make bc bison flex libssl-dev libelf-dev python3 zip unzip rsync device-tree-compiler libncurses5-dev libdw-dev libxml2-dev gcc
 
-      - name: 3. 下载指定版本的 Clang r536225 (带重试)
+      - name: 3. 下载指定版本的 Clang r536225 (带重试与赋权)
         run: |
           cd $GITHUB_WORKSPACE
           wget -c --tries=3 -q https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android15-qpr2-release/clang-r536225.tar.gz
@@ -43,7 +43,7 @@ jobs:
           git fetch --depth 1 origin 2cc7f4606b65a9ede42030ee82614dd845b665a1
           git checkout 2cc7f4606b65a9ede42030ee82614dd845b665a1
 
-      - name: 6. 放入手机配置并生成头文件 (修复了链接器报错)
+      - name: 6. 放入手机配置并生成头文件
         run: |
           cd $GITHUB_WORKSPACE/../kernel_src
           cp $GITHUB_WORKSPACE/.config .
@@ -61,7 +61,7 @@ jobs:
           make ARCH=arm64 oldconfig
           make ARCH=arm64 modules_prepare
 
-      - name: 7. 开始编译 .ko 文件
+      - name: 7. 开始编译 .ko 文件 (修复奇葩变量名)
         run: |
           cd $GITHUB_WORKSPACE
           
@@ -73,10 +73,15 @@ jobs:
           # 指向编译器
           export PMB110_CLANG=$CLANG_DIR/clang
           export PMB110_CLANG_PATH=$CLANG_DIR
+          
+          # 针对脚本作者拼写错误的终极修复：把 LID 和 LLD 都喂给它
+          export PMB110_LD_LLD=$CLANG_DIR/ld.lld
+          export PMB110_LD_LID=$CLANG_DIR/ld.lld
           export PMB110_LLD_PATH=$CLANG_DIR/ld.lld
+          
           export PMB110_SHORT=1
           
-          # 核心修复：确保 LKM 编译脚本也用对的链接器
+          # 确保系统底层链接器也对
           export LLVM=1
           export CC=$CLANG_DIR/clang
           export LD=$CLANG_DIR/ld.lld
