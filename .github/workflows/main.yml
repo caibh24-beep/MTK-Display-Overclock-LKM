@@ -10,20 +10,21 @@ jobs:
       - name: 1. 下载你的仓库代码
         uses: actions/checkout@v4
 
-      - name: 2. 安装系统编译依赖
+      - name: 2. 安装系统编译依赖 (已修复 libdw 缺失)
         run: |
           sudo apt-get update
-          sudo apt-get install -y git make bc bison flex libssl-dev libelf-dev python3 zip unzip rsync device-tree-compiler libncurses5-dev
+          # 一次性装齐所有可能需要的依赖，避免后续报错
+          sudo apt-get install -y git make bc bison flex libssl-dev libelf-dev python3 zip unzip rsync device-tree-compiler libncurses5-dev libdw-dev libxml2-dev gcc
 
-      - name: 3. 下载指定版本的 Clang r536225
+      - name: 3. 下载指定版本的 Clang r536225 (增加重试和断点续传)
         run: |
-          # 使用修正后的正确链接下载
-          wget -q https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android15-qpr2-release/clang-r536225.tar.gz
-          
-          # 创建目录并解压 (使用修正后的命令，避免解压报错)
+          cd ..
+          # -c 断点续传，--tries=3 失败重试3次，避免网络波动导致下载中断
+          wget -c --tries=3 -q https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android15-qpr2-release/clang-r536225.tar.gz
           mkdir -p clang-r536225
           tar -xzf clang-r536225.tar.gz -C clang-r536225
-          
+          # 将 Clang 加入系统环境变量，确保编译脚本能全局调用
+          echo "$(pwd)/clang-r536225/bin" >> $GITHUB_PATH
           echo "CLANG_PATH=$(pwd)/clang-r536225/bin" >> $GITHUB_ENV
 
       - name: 4. 下载内核源码 (指定 commit)
@@ -45,12 +46,15 @@ jobs:
       - name: 6. 放入手机配置并生成头文件
         run: |
           cd ../kernel_src
+          # 把你上传的 .config 放进内核源码
           cp $GITHUB_WORKSPACE/.config .
+          # 强制使用咱们刚下载的 Clang
           make ARCH=arm64 CC=$CLANG_PATH/clang oldconfig
           make ARCH=arm64 CC=$CLANG_PATH/clang modules_prepare
 
       - name: 7. 开始编译 .ko 文件
         run: |
+          # 严格按照项目文档要求设置环境变量
           export PMB110_HEADERS_DIR=$(pwd)/../kernel_src
           export PMB110_KERNEL_SOURCE=$(pwd)/../kernel_src
           export PMB110_DISPLAY_ROOT=$(pwd)/../display_src
@@ -59,6 +63,7 @@ jobs:
           export PMB110_LLD_PATH=$CLANG_PATH/ld.lld
           export PMB110_SHORT=1
           
+          # 运行原项目的编译脚本
           sh scripts/build_module.sh
 
       - name: 8. 打包上传编译好的 .ko 文件
