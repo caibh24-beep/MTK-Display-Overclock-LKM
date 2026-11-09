@@ -17,9 +17,13 @@ jobs:
 
       - name: 3. 下载指定版本的 Clang r536225
         run: |
-          cd ..
-          wget -q https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/master/clang-r536225.tar.gz
-          mkdir -p clang-r536225 && tar -xzf clang-r536225.tar.gz -C clang-r536225
+          # 使用修正后的正确链接下载
+          wget -q https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android15-qpr2-release/clang-r536225.tar.gz
+          
+          # 创建目录并解压 (使用修正后的命令，避免解压报错)
+          mkdir -p clang-r536225
+          tar -xzf clang-r536225.tar.gz -C clang-r536225
+          
           echo "CLANG_PATH=$(pwd)/clang-r536225/bin" >> $GITHUB_ENV
 
       - name: 4. 下载内核源码 (指定 commit)
