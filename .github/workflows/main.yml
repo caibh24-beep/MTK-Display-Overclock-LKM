@@ -12,33 +12,27 @@ jobs:
       - name: 1. 下载你的仓库代码
         uses: actions/checkout@v4
 
-      - name: 2. 安装系统编译依赖 (加入 aria2 多线程下载器)
+      - name: 2. 安装系统编译依赖
         run: |
           sudo apt-get update
           sudo apt-get install -y git make bc bison flex libssl-dev libelf-dev python3 zip unzip rsync device-tree-compiler libncurses5-dev libdw-dev libxml2-dev gcc curl aria2
 
-      - name: 3. 多线程极速下载 Clang r536225 (带双源容错)
+      - name: 3. 使用镜像代理与多线程下载 Clang r536225
         run: |
           cd $GITHUB_WORKSPACE
-          echo "正在使用 Aria2 16线程下载 Clang..."
+          echo "正在通过 ghproxy 镜像下载 Clang..."
           
-          # 尝试从谷歌官方源下载，切成16块同时下，最多重试5次
-          aria2c -x 16 -s 16 -k 1M --retry-wait=3 -m 5 -o clang-r536225.tar.gz \
-            "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android15-qpr2-release/clang-r536225.tar.gz" || true
+          # 使用代理镜像，规避直连超时问题
+          MIRROR_URL="https://ghproxy.net/https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android15-qpr2-release/clang-r536225.tar.gz"
           
-          # 检查文件是否完整，如果损坏或没下下来，自动切到备用镜像源
-          if ! gzip -t clang-r536225.tar.gz 2>/dev/null; then
-            echo "官方源下载失败，切换备用加速镜像源..."
-            rm -f clang-r536225.tar.gz
-            # 备用源：一个 Github 上的开源镜像
-            aria2c -x 16 -s 16 -k 1M --retry-wait=3 -m 5 -o clang-r536225.tar.gz \
-              "https://github.com/Yervant7/clang-r536225/releases/download/v1.0/clang-r536225.tar.gz" || true
-          fi
+          # 16线程多线程下载，失败自动重试
+          aria2c -x 16 -s 16 -k 1M --retry-wait=3 -m 5 -o clang-r536225.tar.gz "$MIRROR_URL"
           
-          # 再次强校验，如果还是不行就报错退出
-          gzip -t clang-r536225.tar.gz || { echo "下载彻底失败，请重新运行"; exit 1; }
+          # 强校验文件完整性，防止半截文件
+          echo "正在校验文件完整性..."
+          gzip -t clang-r536225.tar.gz || { echo "下载的文件损坏，请重试"; exit 1; }
           
-          echo "下载完成，正在解压..."
+          echo "下载成功，正在解压..."
           mkdir -p clang-r536225
           tar -xzf clang-r536225.tar.gz -C clang-r536225
           echo "$CLANG_DIR" >> $GITHUB_PATH
