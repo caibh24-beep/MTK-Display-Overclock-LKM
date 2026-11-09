@@ -46,7 +46,7 @@ jobs:
           done
 
           if [ "$DOWNLOAD_SUCCESS" = false ]; then
-            echo "所有镜像均下载失败，请稍后重试"
+            echo "所有镜像均下载失败，请重新运行"
             exit 1
           fi
           
@@ -86,22 +86,32 @@ jobs:
           make ARCH=arm64 oldconfig
           make ARCH=arm64 modules_prepare
 
-      - name: 7. 开始编译 .ko 文件
+      - name: 7. 开始编译 .ko 文件 (修复头文件路径)
         run: |
           cd $GITHUB_WORKSPACE
+          
+          # 内核源码和头文件路径
           export PMB110_HEADERS_DIR=$GITHUB_WORKSPACE/../kernel_src
           export PMB110_KERNEL_SOURCE=$GITHUB_WORKSPACE/../kernel_src
-          export PMB110_DISPLAY_ROOT=$GITHUB_WORKSPACE/../display_src
+          
+          # 【核心修复】按照文档要求，指向具体的子文件夹 kernel_device_modules-6.12
+          export PMB110_DISPLAY_ROOT=$GITHUB_WORKSPACE/../display_src/kernel/kernel_device_modules-6.12
+          
+          # 编译器路径
           export PMB110_CLANG=$CLANG_DIR/clang
           export PMB110_CLANG_PATH=$CLANG_DIR
           export PMB110_LD_LLD=$CLANG_DIR/ld.lld
           export PMB110_LD_LID=$CLANG_DIR/ld.lld
           export PMB110_LLD_PATH=$CLANG_DIR/ld.lld
           export PMB110_SHORT=1
+          
+          # 环境变量防错
           export LLVM=1
           export CC=$CLANG_DIR/clang
           export LD=$CLANG_DIR/ld.lld
           export CROSS_COMPILE=aarch64-linux-gnu-
+          
+          # 运行原作者编译脚本
           sh scripts/build_module.sh
 
       - name: 8. 打包上传编译好的 .ko 文件
