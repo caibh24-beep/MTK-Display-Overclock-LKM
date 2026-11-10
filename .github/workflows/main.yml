@@ -1,4 +1,4 @@
-name: Build PMB110 LKM
+name: Build PMB110 LKM (6.12.69)
 
 on:
   workflow_dispatch:
@@ -20,102 +20,57 @@ jobs:
       - name: 3. 智能多源下载 Clang r536225
         run: |
           cd $GITHUB_WORKSPACE
-          echo "开始尝试下载 Clang..."
-          
           ORIGIN_URL="https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android15-qpr2-release/clang-r536225.tar.gz"
-          MIRRORS=(
-            "https://ghfast.top/$ORIGIN_URL"
-            "https://gh-proxy.com/$ORIGIN_URL"
-            "https://ghproxy.homeboyc.cn/$ORIGIN_URL"
-            "$ORIGIN_URL"
-          )
-
+          MIRRORS=("https://ghfast.top/$ORIGIN_URL" "https://gh-proxy.com/$ORIGIN_URL" "$ORIGIN_URL")
           DOWNLOAD_SUCCESS=false
           for mirror in "${MIRRORS[@]}"; do
-            echo "尝试下载源: $mirror"
             rm -f clang-r536225.tar.gz
-            
             if aria2c -x 16 -s 16 -k 1M --retry-wait=2 -m 2 -o clang-r536225.tar.gz "$mirror"; then
-              if gzip -t clang-r536225.tar.gz 2>/dev/null; then
-                echo "下载成功且校验通过！"
-                DOWNLOAD_SUCCESS=true
-                break
-              fi
+              if gzip -t clang-r536225.tar.gz 2>/dev/null; then DOWNLOAD_SUCCESS=true; break; fi
             fi
-            echo "当前源失败或文件损坏，切换下一个..."
           done
+          if [ "$DOWNLOAD_SUCCESS" = false ]; then exit 1; fi
+          mkdir -p clang-r536225 && tar -xzf clang-r536225.tar.gz -C clang-r536225
+          echo "$CLANG_DIR" >> $GITHUB_PATH && chmod -R +x $CLANG_DIR
 
-          if [ "$DOWNLOAD_SUCCESS" = false ]; then
-            echo "所有镜像均下载失败，请重新运行"
-            exit 1
-          fi
-          
-          mkdir -p clang-r536225
-          tar -xzf clang-r536225.tar.gz -C clang-r536225
-          echo "$CLANG_DIR" >> $GITHUB_PATH
-          chmod -R +x $CLANG_DIR
-
-      - name: 4. 下载内核源码 (指定 commit)
+      - name: 4. 下载内核源码 (指定 6.12 分支)
         run: |
           cd $GITHUB_WORKSPACE/..
+          # 尝试拉取 6.12 的最新源码，如果没有对应分支则使用默认分支
+          git clone --depth 1 -b android16-6.12 https://github.com/OnePlusOSS/android_kernel_oneplus_mt6993.git kernel_src || \
           git clone --depth 1 https://github.com/OnePlusOSS/android_kernel_oneplus_mt6993.git kernel_src
-          cd kernel_src
-          git fetch --depth 1 origin 2e3b6d890bd2c7bd5779bef6df6e16e2c972b87c
-          git checkout 2e3b6d890bd2c7bd5779bef6df6e16e2c972b87c
 
-      - name: 5. 下载显示模块源码 (指定 commit)
+      - name: 5. 下载显示模块源码 (指定 6.12 分支)
         run: |
           cd $GITHUB_WORKSPACE/..
+          git clone --depth 1 -b android16-6.12 https://github.com/OnePlusOSS/android_kernel_modules_and_devicetree_oneplus_mt6993.git display_src || \
           git clone --depth 1 https://github.com/OnePlusOSS/android_kernel_modules_and_devicetree_oneplus_mt6993.git display_src
-          cd display_src
-          git fetch --depth 1 origin 2cc7f4606b65a9ede42030ee82614dd845b665a1
-          git checkout 2cc7f4606b65a9ede42030ee82614dd845b665a1
 
       - name: 6. 放入手机配置并生成头文件
         run: |
           cd $GITHUB_WORKSPACE/../kernel_src
           cp $GITHUB_WORKSPACE/.config .
-          export LLVM=1
-          export CC=$CLANG_DIR/clang
-          export LD=$CLANG_DIR/ld.lld
-          export AR=$CLANG_DIR/llvm-ar
-          export NM=$CLANG_DIR/llvm-nm
-          export OBJCOPY=$CLANG_DIR/llvm-objcopy
-          export OBJDUMP=$CLANG_DIR/llvm-objdump
-          export STRIP=$CLANG_DIR/llvm-strip
+          export LLVM=1 CC=$CLANG_DIR/clang LD=$CLANG_DIR/ld.lld AR=$CLANG_DIR/llvm-ar NM=$CLANG_DIR/llvm-nm OBJCOPY=$CLANG_DIR/llvm-objcopy OBJDUMP=$CLANG_DIR/llvm-objdump STRIP=$CLANG_DIR/llvm-strip
           make ARCH=arm64 oldconfig
           make ARCH=arm64 modules_prepare
 
-      - name: 7. 开始编译 .ko 文件 (修复头文件路径)
+      - name: 7. 开始编译 .ko 文件 (强制覆写版本号为 6.12.69)
         run: |
           cd $GITHUB_WORKSPACE
-          
-          # 内核源码和头文件路径
           export PMB110_HEADERS_DIR=$GITHUB_WORKSPACE/../kernel_src
           export PMB110_KERNEL_SOURCE=$GITHUB_WORKSPACE/../kernel_src
-          
-          # 【核心修复】按照文档要求，指向具体的子文件夹 kernel_device_modules-6.12
           export PMB110_DISPLAY_ROOT=$GITHUB_WORKSPACE/../display_src/kernel/kernel_device_modules-6.12
+          export PMB110_CLANG=$CLANG_DIR/clang PMB110_CLANG_PATH=$CLANG_DIR
+          export PMB110_LD_LLD=$CLANG_DIR/ld.lld PMB110_LD_LID=$CLANG_DIR/ld.lld PMB110_LLD_PATH=$CLANG_DIR/ld.lld
+          export PMB110_SHORT=1 LLVM=1 CC=$CLANG_DIR/clang LD=$CLANG_DIR/ld.lld CROSS_COMPILE=aarch64-linux-gnu-
           
-          # 编译器路径
-          export PMB110_CLANG=$CLANG_DIR/clang
-          export PMB110_CLANG_PATH=$CLANG_DIR
-          export PMB110_LD_LLD=$CLANG_DIR/ld.lld
-          export PMB110_LD_LID=$CLANG_DIR/ld.lld
-          export PMB110_LLD_PATH=$CLANG_DIR/ld.lld
-          export PMB110_SHORT=1
+          # 核心修改：尝试将源码内的版本号替换为 6.12.69，以匹配你的手机
+          sed -i 's/EXTRAVERSION =.*/EXTRAVERSION = .69/' $PMB110_KERNEL_SOURCE/Makefile
           
-          # 环境变量防错
-          export LLVM=1
-          export CC=$CLANG_DIR/clang
-          export LD=$CLANG_DIR/ld.lld
-          export CROSS_COMPILE=aarch64-linux-gnu-
-          
-          # 运行原作者编译脚本
           sh scripts/build_module.sh
 
       - name: 8. 打包上传编译好的 .ko 文件
         uses: actions/upload-artifact@v4
         with:
-          name: PMB110-185-Mode-KO
+          name: PMB110-6.12.69-Mode-KO
           path: out/*.ko
